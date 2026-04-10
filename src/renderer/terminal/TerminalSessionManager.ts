@@ -1594,11 +1594,32 @@ export class TerminalSessionManager {
       return;
     }
 
+    // Capture viewport position before writing so we can restore it if xterm.js
+    // displaces the viewport during escape-sequence processing (cursor moves,
+    // partial redraws from React Ink, etc.).  Only needed when the user is NOT
+    // at the bottom — otherwise we *want* the viewport to follow new output.
+    const buffer = this.terminal.buffer?.active;
+    const preserveScroll = !this.shouldScrollToBottomAfterWrites && buffer != null
+      && typeof buffer.baseY === 'number' && typeof buffer.viewportY === 'number'
+      && buffer.baseY - buffer.viewportY > 2;
+    const savedViewportY = preserveScroll ? buffer!.viewportY : null;
+
     this.writeInFlight = true;
     try {
       this.terminal.write(slice, () => {
         this.writeInFlight = false;
         if (this.disposed) return;
+
+        // Restore viewport if xterm moved it during the write
+        if (savedViewportY !== null) {
+          try {
+            const buf = this.terminal.buffer?.active;
+            if (buf && typeof buf.viewportY === 'number' && buf.viewportY !== savedViewportY) {
+              this.terminal.scrollToLine(savedViewportY);
+            }
+          } catch {}
+        }
+
         this.markFirstFrameRendered();
         if (this.queuedWriteChars > 0) {
           this.scheduleWriteDrain();
