@@ -1011,7 +1011,8 @@ export function useTaskManagement() {
       nameGenerated?: boolean,
       useRemoteWorkspace?: boolean,
       workspaceProvider?: { provisionCommand: string; terminateCommand: string },
-      overrideProject?: Project
+      overrideProject?: Project,
+      customBranchName?: string
     ) => {
       const targetProject = overrideProject ?? pendingTaskProjectRef.current ?? selectedProject;
       pendingTaskProjectRef.current = null;
@@ -1034,6 +1035,7 @@ export function useTaskManagement() {
         nameGenerated,
         useWorktree,
         baseRef,
+        customBranchName,
         useRemoteWorkspace,
         workspaceProvider,
         preflightPromise: preflight,

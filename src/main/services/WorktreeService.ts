@@ -180,7 +180,8 @@ export class WorktreeService {
     projectPath: string,
     taskName: string,
     projectId: string,
-    baseRef?: string
+    baseRef?: string,
+    customBranchName?: string
   ): Promise<WorktreeInfo> {
     // Declare variables outside try block for access in catch block
     let branchName: string | undefined;
@@ -191,8 +192,12 @@ export class WorktreeService {
     try {
       const { getAppSettings } = await import('../settings');
       const settings = getAppSettings();
-      const prefix = settings?.repository?.branchPrefix || 'emdash';
-      branchName = this.sanitizeBranchName(`${prefix}/${sluggedName}-${hash}`);
+      if (customBranchName) {
+        branchName = this.sanitizeBranchName(customBranchName);
+      } else {
+        const prefix = settings?.repository?.branchPrefix || 'emdash';
+        branchName = this.sanitizeBranchName(`${prefix}/${sluggedName}-${hash}`);
+      }
       worktreePath = path.join(projectPath, '..', `worktrees/${sluggedName}-${hash}`);
       const worktreeId = this.stableIdFromPath(worktreePath);
 

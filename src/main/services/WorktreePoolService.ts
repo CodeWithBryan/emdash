@@ -304,7 +304,8 @@ export class WorktreePoolService {
     projectId: string,
     projectPath: string,
     taskName: string,
-    requestedBaseRef?: string
+    requestedBaseRef?: string,
+    customBranchName?: string
   ): Promise<ClaimResult | null> {
     const resolvedBaseRef = await this.resolveCanonicalBaseRef(projectPath, requestedBaseRef);
     const reserveKey = this.getReserveKey(projectId, resolvedBaseRef);
@@ -328,7 +329,7 @@ export class WorktreePoolService {
     this.reserves.delete(reserveKey);
 
     try {
-      const result = await this.transformReserve(reserve, taskName);
+      const result = await this.transformReserve(reserve, taskName, customBranchName);
 
       // Start background replenishment
       this.replenishReserve(projectId, projectPath, resolvedBaseRef);
@@ -397,15 +398,24 @@ export class WorktreePoolService {
   /**
    * Transform a reserve worktree into a task worktree
    */
-  private async transformReserve(reserve: ReserveWorktree, taskName: string): Promise<ClaimResult> {
+  private async transformReserve(
+    reserve: ReserveWorktree,
+    taskName: string,
+    customBranchName?: string
+  ): Promise<ClaimResult> {
     const { getAppSettings } = await import('../settings');
     const settings = getAppSettings();
-    const prefix = settings?.repository?.branchPrefix || 'emdash';
 
     // Generate new names
     const sluggedName = this.slugify(taskName);
     const hash = this.generateShortHash();
-    const newBranch = `${prefix}/${sluggedName}-${hash}`;
+    let newBranch: string;
+    if (customBranchName) {
+      newBranch = customBranchName;
+    } else {
+      const prefix = settings?.repository?.branchPrefix || 'emdash';
+      newBranch = `${prefix}/${sluggedName}-${hash}`;
+    }
     const newPath = path.join(reserve.projectPath, '..', `worktrees/${sluggedName}-${hash}`);
     const newId = this.stableIdFromPath(newPath);
 

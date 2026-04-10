@@ -130,7 +130,8 @@ export class RemoteGitService {
     connectionId: string,
     projectPath: string,
     taskName: string,
-    baseRef?: string
+    baseRef?: string,
+    customBranchName?: string
   ): Promise<WorktreeInfo> {
     const normalizedProjectPath = this.normalizeRemotePath(projectPath);
     const slug = taskName
@@ -140,9 +141,14 @@ export class RemoteGitService {
       .replace(/^-|-$/g, '');
     const { getAppSettings } = await import('../settings');
     const settings = getAppSettings();
-    const branchPrefix = settings?.repository?.branchPrefix || 'emdash';
     const dirName = `${slug || 'task'}-${Date.now()}`;
-    const worktreeName = `${branchPrefix}/${dirName}`;
+    let worktreeName: string;
+    if (customBranchName) {
+      worktreeName = customBranchName;
+    } else {
+      const branchPrefix = settings?.repository?.branchPrefix || 'emdash';
+      worktreeName = `${branchPrefix}/${dirName}`;
+    }
     const relWorktreePath = `.emdash/worktrees/${dirName}`;
     const worktreePath = `${normalizedProjectPath}/${relWorktreePath}`.replace(/\/+/g, '/');
 

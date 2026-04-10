@@ -238,6 +238,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     taskName: string;
     projectId: string;
     baseRef?: string;
+    customBranchName?: string;
   }) => ipcRenderer.invoke('worktree:create', args),
   worktreeList: (args: { projectPath: string }) => ipcRenderer.invoke('worktree:list', args),
   worktreeRemove: (args: {
@@ -265,12 +266,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     projectPath: string;
     taskName: string;
     baseRef?: string;
+    customBranchName?: string;
   }) => ipcRenderer.invoke('worktree:claimReserve', args),
   worktreeClaimReserveAndSaveTask: (args: {
     projectId: string;
     projectPath: string;
     taskName: string;
     baseRef?: string;
+    customBranchName?: string;
     task: {
       projectId: string;
       name: string;

@@ -56,6 +56,7 @@ export function registerWorktreeIpc(): void {
         taskName: string;
         projectId: string;
         baseRef?: string;
+        customBranchName?: string;
       }
     ) => {
       try {
@@ -74,7 +75,8 @@ export function registerWorktreeIpc(): void {
             project.sshConnectionId,
             project.remotePath,
             args.taskName,
-            baseRef
+            baseRef,
+            args.customBranchName
           );
           const worktree = {
             id: stableIdFromRemotePath(remote.path),
@@ -92,7 +94,8 @@ export function registerWorktreeIpc(): void {
           args.projectPath,
           args.taskName,
           args.projectId,
-          args.baseRef
+          args.baseRef,
+          args.customBranchName
         );
         return { success: true, worktree };
       } catch (error) {
@@ -346,6 +349,7 @@ export function registerWorktreeIpc(): void {
         projectPath: string;
         taskName: string;
         baseRef?: string;
+        customBranchName?: string;
       }
     ) => {
       try {
@@ -360,7 +364,8 @@ export function registerWorktreeIpc(): void {
           args.projectId,
           args.projectPath,
           args.taskName,
-          args.baseRef
+          args.baseRef,
+          args.customBranchName
         );
         if (result) {
           return {
@@ -387,6 +392,7 @@ export function registerWorktreeIpc(): void {
         projectPath: string;
         taskName: string;
         baseRef?: string;
+        customBranchName?: string;
         task: {
           projectId: string;
           name: string;
@@ -410,7 +416,8 @@ export function registerWorktreeIpc(): void {
           args.projectId,
           args.projectPath,
           args.taskName,
-          args.baseRef
+          args.baseRef,
+          args.customBranchName
         );
         if (!claim) {
           return { success: false, error: 'No reserve available' };
