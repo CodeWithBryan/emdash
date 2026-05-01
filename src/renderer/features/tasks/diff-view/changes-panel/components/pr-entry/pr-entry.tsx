@@ -193,16 +193,16 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
             }
           }}
         >
-          <ToggleGroupItem className="flex-1" value="files" disabled={!isOpen}>
+          <ToggleGroupItem className="flex-1 text-xs px-1.5" value="files" disabled={!isOpen}>
             Files
           </ToggleGroupItem>
-          <ToggleGroupItem className="flex-1" value="commits">
+          <ToggleGroupItem className="flex-1 text-xs px-1.5" value="commits">
             Commits
           </ToggleGroupItem>
-          <ToggleGroupItem className="flex-1" value="checks">
+          <ToggleGroupItem className="flex-1 text-xs px-1.5" value="checks">
             Checks
           </ToggleGroupItem>
-          <ToggleGroupItem className="flex-1" value="comments">
+          <ToggleGroupItem className="flex-1 text-xs px-1.5" value="comments">
             Comments
           </ToggleGroupItem>
         </ToggleGroup>

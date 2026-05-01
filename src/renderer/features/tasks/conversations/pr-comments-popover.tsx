@@ -1,10 +1,12 @@
-import { ArrowUp, MessagesSquare } from 'lucide-react';
+import { ArrowUp, CheckCircle2, MessageSquare, MessagesSquare, XCircle } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import type { PullRequestComment } from '@shared/pull-requests';
+import { summarizeCommentBody } from '@renderer/features/tasks/diff-view/changes-panel/components/pr-entry/pr-comment-utils';
 import { Button } from '@renderer/lib/ui/button';
 import { Checkbox } from '@renderer/lib/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/lib/ui/popover';
+import { RelativeTime } from '@renderer/lib/ui/relative-time';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 
 interface PrCommentsPopoverProps {
@@ -27,16 +29,25 @@ function groupLabel(key: string): string {
   return key.startsWith('thread:') ? key.slice('thread:'.length) : key;
 }
 
-function reviewStateLabel(state: PullRequestComment['reviewState']): string | null {
+function reviewMeta(state: PullRequestComment['reviewState']): {
+  icon: React.ReactNode;
+  label: string;
+} | null {
   switch (state) {
     case 'APPROVED':
-      return 'approved';
+      return { icon: <CheckCircle2 className="size-3 text-green-500" />, label: 'approved' };
     case 'CHANGES_REQUESTED':
-      return 'requested changes';
+      return {
+        icon: <XCircle className="size-3 text-foreground-destructive" />,
+        label: 'requested changes',
+      };
     case 'COMMENTED':
-      return 'commented';
+      return {
+        icon: <MessageSquare className="size-3 text-foreground-muted" />,
+        label: 'commented',
+      };
     case 'DISMISSED':
-      return 'dismissed';
+      return { icon: <XCircle className="size-3 text-foreground-muted" />, label: 'dismissed' };
     default:
       return null;
   }
@@ -64,6 +75,12 @@ export const PrCommentsPopover = observer(function PrCommentsPopover({
       groups.set(k, existing);
     }
     return groups;
+  }, [comments]);
+
+  const summaries = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of comments) map.set(c.id, summarizeCommentBody(c.body, 220));
+    return map;
   }, [comments]);
 
   const count = comments.length;
@@ -111,15 +128,15 @@ export const PrCommentsPopover = observer(function PrCommentsPopover({
         </TooltipContent>
       </Tooltip>
 
-      <PopoverContent align="start" className="w-[min(520px,92vw)] gap-0 p-0">
-        <div className="border-b px-4 py-3 flex flex-row justify-between items-center gap-3">
+      <PopoverContent align="start" className="w-[min(560px,92vw)] gap-0 p-0">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold">PR comments</div>
             <div className="text-xs text-muted-foreground">
               {selectedCount} of {count} selected
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             <Button variant="ghost" size="sm" onClick={toggleAll} disabled={count === 0}>
               {allSelected ? 'Clear' : 'Select all'}
             </Button>
@@ -144,58 +161,72 @@ export const PrCommentsPopover = observer(function PrCommentsPopover({
           </div>
         </div>
 
-        <div className="max-h-[min(420px,60vh)] overflow-y-auto">
-          <div className="divide-y">
-            {Array.from(grouped.entries()).map(([key, groupComments]) => (
-              <div key={key} className="py-2">
-                <div
-                  className="truncate px-4 pb-1 text-xs font-medium text-muted-foreground"
-                  title={groupLabel(key)}
-                >
-                  {groupLabel(key)}
-                </div>
-                <div className="space-y-1">
-                  {groupComments.map((comment) => {
-                    const stateLabel =
-                      comment.kind === 'review'
-                        ? reviewStateLabel(comment.reviewState ?? null)
-                        : null;
-                    const isSelected = selectedIds.has(comment.id);
-                    return (
-                      <label
-                        key={comment.id}
-                        className="group flex cursor-pointer items-start gap-2 px-4 py-2 transition-colors hover:bg-muted/40"
-                      >
-                        <Checkbox
-                          className="mt-0.5"
-                          checked={isSelected}
-                          onCheckedChange={() => toggleOne(comment.id)}
-                          aria-label={`Toggle comment from ${comment.author?.login ?? 'unknown'}`}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              {comment.author?.login ?? 'unknown'}
-                            </span>
-                            {stateLabel ? <span>{stateLabel}</span> : null}
-                            {comment.kind === 'review-thread' && comment.line ? (
-                              <span className="font-mono text-[11px]">
-                                line {comment.line}
-                                {comment.outdated ? ' (outdated)' : ''}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="line-clamp-3 break-words text-sm leading-snug">
-                            {comment.body.trim().length > 0 ? comment.body : '(no body)'}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
+        <div className="max-h-[min(480px,65vh)] overflow-y-auto">
+          {Array.from(grouped.entries()).map(([key, groupComments]) => (
+            <div key={key} className="border-b last:border-b-0">
+              <div
+                className="sticky top-0 z-[1] truncate bg-background-1/95 px-4 py-1.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground backdrop-blur"
+                title={groupLabel(key)}
+              >
+                {groupLabel(key)}
               </div>
-            ))}
-          </div>
+              <div>
+                {groupComments.map((comment) => {
+                  const stateMeta =
+                    comment.kind === 'review' ? reviewMeta(comment.reviewState ?? null) : null;
+                  const isSelected = selectedIds.has(comment.id);
+                  const summary = summaries.get(comment.id) ?? '';
+                  return (
+                    <label
+                      key={comment.id}
+                      className="group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
+                    >
+                      <Checkbox
+                        className="mt-1"
+                        checked={isSelected}
+                        onCheckedChange={() => toggleOne(comment.id)}
+                        aria-label={`Toggle comment from ${comment.author?.login ?? 'unknown'}`}
+                      />
+                      {comment.author?.avatarUrl ? (
+                        <img
+                          src={comment.author.avatarUrl}
+                          alt={comment.author.login}
+                          className="mt-0.5 size-5 shrink-0 rounded-full"
+                        />
+                      ) : (
+                        <div className="mt-0.5 size-5 shrink-0 rounded-full bg-background-3" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {comment.author?.login ?? 'unknown'}
+                          </span>
+                          {stateMeta ? (
+                            <span className="flex items-center gap-1">
+                              {stateMeta.icon}
+                              <span>{stateMeta.label}</span>
+                            </span>
+                          ) : null}
+                          {comment.kind === 'review-thread' && comment.line ? (
+                            <span className="font-mono text-[11px]">
+                              line {comment.line}
+                              {comment.outdated ? ' (outdated)' : ''}
+                            </span>
+                          ) : null}
+                          <span className="ml-auto">
+                            <RelativeTime value={comment.createdAt} compact ago />
+                          </span>
+                        </div>
+                        <div className="mt-1 line-clamp-3 break-words text-sm leading-snug text-foreground">
+                          {summary || '(no body)'}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </PopoverContent>
     </Popover>
