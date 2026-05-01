@@ -1,9 +1,10 @@
+import type { PullRequestComment } from '@shared/pull-requests';
 import type { Issue } from '@shared/tasks';
 import { ISSUE_PROVIDER_META } from '@renderer/features/integrations/issue-provider-meta';
 
 const MAX_LABEL_TITLE_LENGTH = 24;
 
-export type ContextActionKind = 'linked-issue' | 'draft-comments' | 'review-prompt';
+export type ContextActionKind = 'linked-issue' | 'draft-comments' | 'review-prompt' | 'pr-comments';
 
 export interface ContextAction {
   id: string;
@@ -91,17 +92,58 @@ export function buildDraftCommentsContextAction(args: {
   };
 }
 
+const MAX_PR_COMMENTS_FOR_CONTEXT = 200;
+const MAX_PR_COMMENT_BODY_CHARS = 500;
+
+function formatPrCommentForAgent(comment: PullRequestComment): string {
+  const author = comment.author?.login ?? 'unknown';
+  const normalized = normalizeWhitespace(comment.body) || '(no body)';
+  const body = truncate(normalized, MAX_PR_COMMENT_BODY_CHARS);
+  const headerParts: string[] = [author];
+  if (comment.kind === 'review' && comment.reviewState) {
+    headerParts.push(comment.reviewState.toLowerCase().replace('_', ' '));
+  }
+  if (comment.kind === 'review-thread' && comment.path) {
+    const loc = comment.line ? `${comment.path}:${comment.line}` : comment.path;
+    headerParts.push(`on ${loc}${comment.outdated ? ' (outdated)' : ''}`);
+  }
+  return `[${headerParts.join(' — ')}] ${body}`;
+}
+
+export function buildPrCommentsContextAction(
+  comments?: PullRequestComment[]
+): ContextAction | null {
+  if (!comments || comments.length === 0) return null;
+  const total = comments.length;
+  const capped = comments.slice(0, MAX_PR_COMMENTS_FOR_CONTEXT);
+  const lines = capped.map(formatPrCommentForAgent);
+  const truncatedNote =
+    total > capped.length
+      ? `\n(${total - capped.length} additional comment${total - capped.length === 1 ? '' : 's'} omitted)`
+      : '';
+  const text = `PR comments:\n${lines.map((l) => `- ${l}`).join('\n')}${truncatedNote}`;
+  return {
+    id: 'pr-comments',
+    kind: 'pr-comments',
+    label: `PR comments (${total})`,
+    text,
+  };
+}
+
 export function buildTaskContextActions(
   linkedIssue?: Issue,
   reviewPrompt?: string,
-  draftComments?: { count: number; formattedComments?: string }
+  draftComments?: { count: number; formattedComments?: string },
+  prComments?: PullRequestComment[]
 ): ContextAction[] {
   const linkedIssueAction = buildLinkedIssueContextAction(linkedIssue);
   const draftCommentsAction = draftComments ? buildDraftCommentsContextAction(draftComments) : null;
   const reviewPromptAction = buildReviewPromptContextAction(reviewPrompt);
+  const prCommentsAction = buildPrCommentsContextAction(prComments);
   const actions: ContextAction[] = [];
   if (linkedIssueAction) actions.push(linkedIssueAction);
   if (draftCommentsAction) actions.push(draftCommentsAction);
+  if (prCommentsAction) actions.push(prCommentsAction);
   if (reviewPromptAction) actions.push(reviewPromptAction);
   return actions;
 }

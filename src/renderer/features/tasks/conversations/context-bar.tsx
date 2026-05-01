@@ -1,6 +1,7 @@
 import { ArrowUp, FileSearch } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
+import type { PullRequestComment } from '@shared/pull-requests';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { getRegisteredTaskData } from '@renderer/features/tasks/stores/task-selectors';
 import { useProvisionedTask, useTaskViewContext } from '@renderer/features/tasks/task-view-context';
@@ -10,7 +11,12 @@ import { Button } from '@renderer/lib/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { ProviderLogo } from '../components/issue-selector/issue-selector';
 import { CommentsPopover } from './comments-popover';
-import { buildTaskContextActions, type ContextAction } from './context-actions';
+import {
+  buildPrCommentsContextAction,
+  buildTaskContextActions,
+  type ContextAction,
+} from './context-actions';
+import { PrCommentsPopover } from './pr-comments-popover';
 
 export const ContextBar = observer(function ContextBar() {
   const { projectId, taskId } = useTaskViewContext();
@@ -20,6 +26,15 @@ export const ContextBar = observer(function ContextBar() {
   const conversationTabs = provisioned.taskView.conversationTabs;
   const conversationStore = provisioned.conversations;
   const draftComments = provisioned.draftComments;
+  const prStore = provisioned.workspace.pr;
+  const currentPr = prStore.currentPr;
+  const prCommentsResource = currentPr ? prStore.getComments(currentPr) : null;
+  const consumedSet = currentPr ? prStore.consumedCommentIds(currentPr.url) : null;
+  const prComments = useMemo(() => {
+    const all = prCommentsResource?.data ?? [];
+    if (!consumedSet || consumedSet.size === 0) return all;
+    return all.filter((c) => !consumedSet.has(c.id));
+  }, [prCommentsResource?.data, consumedSet]);
   const activeConversation = conversationTabs.activeTab;
   const activeSessionId = activeConversation?.session.sessionId;
   const canApplyContext = Boolean(activeSessionId);
@@ -28,17 +43,27 @@ export const ContextBar = observer(function ContextBar() {
 
   const actions = useMemo(
     () =>
-      buildTaskContextActions(task?.linkedIssue, reviewPrompt, {
-        count: draftComments.count,
-        formattedComments: formattedDraftComments,
-      }),
-    [reviewPrompt, task?.linkedIssue, draftComments.count, formattedDraftComments]
+      buildTaskContextActions(
+        task?.linkedIssue,
+        reviewPrompt,
+        {
+          count: draftComments.count,
+          formattedComments: formattedDraftComments,
+        },
+        prComments
+      ),
+    [reviewPrompt, task?.linkedIssue, draftComments.count, formattedDraftComments, prComments]
   );
   const issueAction = actions.find((action) => action.kind === 'linked-issue') ?? null;
   const reviewAction = actions.find((action) => action.kind === 'review-prompt') ?? null;
   const draftCommentsAction = actions.find((action) => action.kind === 'draft-comments') ?? null;
+  const prCommentsAction = actions.find((action) => action.kind === 'pr-comments') ?? null;
 
-  if (!hasConversation || (!issueAction && !draftCommentsAction && !reviewAction)) return null;
+  if (
+    !hasConversation ||
+    (!issueAction && !draftCommentsAction && !reviewAction && !prCommentsAction)
+  )
+    return null;
 
   const applyContext = async (action: ContextAction) => {
     if (!activeSessionId) return;
@@ -101,6 +126,20 @@ export const ContextBar = observer(function ContextBar() {
                 : 'Create and select a conversation first'}
             </TooltipContent>
           </Tooltip>
+        ) : null}
+        {prComments.length > 0 ? (
+          <PrCommentsPopover
+            comments={prComments}
+            canApplyContext={canApplyContext}
+            onApply={(selected: PullRequestComment[]) => {
+              const action = buildPrCommentsContextAction(selected);
+              if (!action) return;
+              const ids = selected.map((c) => c.id);
+              void applyContext(action).then(() => {
+                if (currentPr) prStore.markCommentsConsumed(currentPr.url, ids);
+              });
+            }}
+          />
         ) : null}
         {draftCommentsAction ? (
           <CommentsPopover

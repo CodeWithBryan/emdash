@@ -156,6 +156,81 @@ export const GET_PR_BY_NUMBER_QUERY = `
   ${PR_SUMMARY_FRAGMENT}
 `;
 
+export const GET_PR_ISSUE_COMMENTS_PAGE_QUERY = `
+  query getPrIssueComments($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        comments(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            url
+            body
+            createdAt
+            updatedAt
+            author { login avatarUrl url }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const GET_PR_REVIEWS_PAGE_QUERY = `
+  query getPrReviews($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviews(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            url
+            body
+            state
+            createdAt
+            updatedAt
+            author { login avatarUrl url }
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const GET_PR_REVIEW_THREADS_PAGE_QUERY = `
+  query getPrReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 50, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            isOutdated
+            isResolved
+            path
+            line
+            originalLine
+            comments(first: 100) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                id
+                url
+                body
+                createdAt
+                updatedAt
+                path
+                line
+                originalLine
+                author { login avatarUrl url }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const GET_PR_CHECK_RUNS_BY_URL_QUERY = `
   query getPrCheckRunsByUrl($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
     repository(owner: $owner, name: $repo) {

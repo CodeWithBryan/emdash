@@ -12,6 +12,7 @@ import type {
   MergeStateStatus,
   PrSyncProgress,
   PullRequest,
+  PullRequestComment,
   PullRequestFile,
   PullRequestStatus,
 } from '@shared/pull-requests';
@@ -20,6 +21,9 @@ import { getOctokit } from '@main/core/github/services/octokit-provider';
 import {
   GET_PR_BY_NUMBER_QUERY,
   GET_PR_CHECK_RUNS_BY_URL_QUERY,
+  GET_PR_ISSUE_COMMENTS_PAGE_QUERY,
+  GET_PR_REVIEW_THREADS_PAGE_QUERY,
+  GET_PR_REVIEWS_PAGE_QUERY,
   INCREMENTAL_SYNC_PRS_QUERY,
   SYNC_PRS_QUERY,
 } from '@main/core/github/services/pr-queries';
@@ -1090,6 +1094,131 @@ export class PrSyncEngine {
         patch: f.patch,
       }))
     );
+  }
+
+  async getPullRequestComments(
+    repositoryUrl: string,
+    prNumber: number
+  ): Promise<Result<PullRequestComment[], GitHubRepositoryParseError>> {
+    const repository = parseGitHubRepositoryResult(repositoryUrl);
+    if (!repository.success) return repository;
+    const { owner, repo } = repository.data;
+    const octokit = await this.getOctokit();
+
+    type GqlAuthor = { login: string; avatarUrl: string; url?: string } | null;
+    type GqlPageInfo = { hasNextPage: boolean; endCursor: string | null };
+    type GqlIssueComment = {
+      id: string;
+      url: string;
+      body: string;
+      createdAt: string;
+      updatedAt: string;
+      author: GqlAuthor;
+    };
+    type GqlReview = GqlIssueComment & { state: string };
+    type GqlReviewThreadComment = GqlIssueComment & {
+      path: string | null;
+      line: number | null;
+      originalLine: number | null;
+    };
+    type GqlReviewThread = {
+      id: string;
+      isOutdated: boolean;
+      isResolved: boolean;
+      path: string | null;
+      line: number | null;
+      originalLine: number | null;
+      comments: { pageInfo: GqlPageInfo; nodes: GqlReviewThreadComment[] };
+    };
+
+    const fetchAllPages = async <TNode>(
+      query: string,
+      pick: (data: {
+        repository: {
+          pullRequest: { [k: string]: { pageInfo: GqlPageInfo; nodes: TNode[] } } | null;
+        };
+      }) => { pageInfo: GqlPageInfo; nodes: TNode[] } | null
+    ): Promise<TNode[]> => {
+      const out: TNode[] = [];
+      let cursor: string | null = null;
+      // Hard cap to avoid runaway pagination on adversarial inputs.
+      for (let safety = 0; safety < 50; safety++) {
+        const response: {
+          repository: {
+            pullRequest: { [k: string]: { pageInfo: GqlPageInfo; nodes: TNode[] } } | null;
+          };
+        } = await withRetry(() =>
+          githubRateLimiter
+            .acquire()
+            .then(() => octokit.graphql(query, { owner, repo, number: prNumber, cursor }))
+        );
+        const conn = pick(response);
+        if (!conn) return out;
+        out.push(...conn.nodes);
+        if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor) return out;
+        cursor = conn.pageInfo.endCursor;
+      }
+      return out;
+    };
+
+    const [issueCommentNodes, reviewNodes, threadNodes] = await Promise.all([
+      fetchAllPages<GqlIssueComment>(GET_PR_ISSUE_COMMENTS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.comments : null
+      ),
+      fetchAllPages<GqlReview>(GET_PR_REVIEWS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.reviews : null
+      ),
+      fetchAllPages<GqlReviewThread>(GET_PR_REVIEW_THREADS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.reviewThreads : null
+      ),
+    ]);
+
+    const mapAuthor = (a: GqlAuthor): PullRequestComment['author'] =>
+      a ? { login: a.login, avatarUrl: a.avatarUrl ?? null, url: a.url ?? null } : null;
+
+    const issueComments: PullRequestComment[] = issueCommentNodes.map((c) => ({
+      id: c.id,
+      kind: 'issue',
+      author: mapAuthor(c.author),
+      body: c.body,
+      url: c.url ?? null,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt ?? null,
+    }));
+
+    const reviews: PullRequestComment[] = reviewNodes
+      .filter((r) => (r.body && r.body.trim().length > 0) || r.state !== 'COMMENTED')
+      .map((r) => ({
+        id: r.id,
+        kind: 'review',
+        author: mapAuthor(r.author),
+        body: r.body,
+        url: r.url ?? null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt ?? null,
+        reviewState: r.state as PullRequestComment['reviewState'],
+      }));
+
+    const threadComments: PullRequestComment[] = threadNodes.flatMap((t) =>
+      t.comments.nodes.map((c) => ({
+        id: c.id,
+        kind: 'review-thread' as const,
+        author: mapAuthor(c.author),
+        body: c.body,
+        url: c.url ?? null,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt ?? null,
+        path: c.path ?? t.path ?? null,
+        line: c.line ?? c.originalLine ?? t.line ?? t.originalLine ?? null,
+        outdated: t.isOutdated,
+      }))
+    );
+
+    const all = [...issueComments, ...reviews, ...threadComments].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt)
+    );
+
+    return ok(all);
   }
 
   private async _getFullSyncCursor(repositoryUrl: string): Promise<{ done: boolean } | null> {
