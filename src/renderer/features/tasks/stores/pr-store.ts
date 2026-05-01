@@ -1,4 +1,4 @@
-import { makeAutoObservable, type IObservableArray } from 'mobx';
+import { makeAutoObservable, observable, type IObservableArray } from 'mobx';
 import { gitRefChangedChannel, gitWorkspaceChangedChannel } from '@shared/events/gitEvents';
 import { commitRef, mergeBaseRange, refsEqual, remoteRef, type GitChange } from '@shared/git';
 import { parseGitHubRepository } from '@shared/github-repository';
@@ -35,6 +35,10 @@ export class PrStore {
     string,
     { resource: Resource<PullRequestComment[]>; updatedAt: string }
   >();
+  /** Per-PR set of comment IDs the user has already injected into a chat. */
+  private readonly _consumedCommentIds = observable.map<string, Set<string>>(new Map(), {
+    deep: false,
+  });
 
   constructor(
     private readonly projectId: string,
@@ -111,6 +115,75 @@ export class PrStore {
       this._prFiles.set(key, { resource, headRefOid: pr.headRefOid });
     }
     return this._prFiles.get(key)!.resource;
+  }
+
+  private _consumedStorageKey(prUrl: string): string {
+    return `pr-consumed-comments:${prUrl}`;
+  }
+
+  private _loadConsumedFromStorage(prUrl: string): Set<string> {
+    try {
+      const raw = localStorage.getItem(this._consumedStorageKey(prUrl));
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((v) => typeof v === 'string'))
+        : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private _persistConsumed(prUrl: string, ids: Set<string>): void {
+    try {
+      localStorage.setItem(this._consumedStorageKey(prUrl), JSON.stringify(Array.from(ids)));
+    } catch {
+      // Ignore quota errors — consumed state is best-effort.
+    }
+  }
+
+  consumedCommentIds(prUrl: string): ReadonlySet<string> {
+    let set = this._consumedCommentIds.get(prUrl);
+    if (!set) {
+      set = this._loadConsumedFromStorage(prUrl);
+      this._consumedCommentIds.set(prUrl, set);
+    }
+    return set;
+  }
+
+  getUnsentComments(pr: PullRequest): PullRequestComment[] {
+    const all = this.getComments(pr).data ?? [];
+    const consumed = this.consumedCommentIds(pr.url);
+    if (consumed.size === 0) return all;
+    return all.filter((c) => !consumed.has(c.id));
+  }
+
+  markCommentsConsumed(prUrl: string, ids: string[]): void {
+    if (ids.length === 0) return;
+    const next = new Set(this.consumedCommentIds(prUrl));
+    for (const id of ids) next.add(id);
+    this._consumedCommentIds.set(prUrl, next);
+    this._persistConsumed(prUrl, next);
+  }
+
+  unmarkCommentConsumed(prUrl: string, id: string): void {
+    const current = this.consumedCommentIds(prUrl);
+    if (!current.has(id)) return;
+    const next = new Set(current);
+    next.delete(id);
+    this._consumedCommentIds.set(prUrl, next);
+    this._persistConsumed(prUrl, next);
+  }
+
+  resetConsumedComments(prUrl: string): void {
+    if (
+      !this._consumedCommentIds.has(prUrl) &&
+      !localStorage.getItem(this._consumedStorageKey(prUrl))
+    ) {
+      return;
+    }
+    this._consumedCommentIds.set(prUrl, new Set());
+    this._persistConsumed(prUrl, new Set());
   }
 
   getComments(pr: PullRequest): Resource<PullRequestComment[]> {

@@ -1,9 +1,10 @@
-import { CheckCircle2, ExternalLink, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, MessageSquare, RotateCcw, XCircle } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
 import type { PullRequest, PullRequestComment } from '@shared/pull-requests';
 import { useProvisionedTask } from '@renderer/features/tasks/task-view-context';
 import { rpc } from '@renderer/lib/ipc';
+import { Button } from '@renderer/lib/ui/button';
 import { EmptyState } from '@renderer/lib/ui/empty-state';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { RelativeTime } from '@renderer/lib/ui/relative-time';
@@ -46,7 +47,15 @@ function reviewBadge(state: PullRequestComment['reviewState']): {
   }
 }
 
-function CommentItem({ comment }: { comment: PullRequestComment }) {
+function CommentItem({
+  comment,
+  isSent,
+  onUnmark,
+}: {
+  comment: PullRequestComment;
+  isSent: boolean;
+  onUnmark: () => void;
+}) {
   const badge = comment.kind === 'review' ? reviewBadge(comment.reviewState ?? null) : null;
   const author = comment.author;
   const sanitized = useMemo(() => sanitizeCommentBody(comment.body), [comment.body]);
@@ -55,7 +64,8 @@ function CommentItem({ comment }: { comment: PullRequestComment }) {
     <div
       className={cn(
         'group relative flex flex-col gap-2 rounded-md border border-border bg-background-1 px-3.5 py-3 border-l-2',
-        badge?.accentClass ?? 'border-l-border'
+        badge?.accentClass ?? 'border-l-border',
+        isSent && 'opacity-60'
       )}
     >
       <div className="flex items-center gap-2 text-xs">
@@ -70,6 +80,18 @@ function CommentItem({ comment }: { comment: PullRequestComment }) {
             {badge.icon}
             <span>{badge.label}</span>
           </span>
+        ) : null}
+        {isSent ? (
+          <button
+            type="button"
+            onClick={onUnmark}
+            className="flex items-center gap-1 rounded-sm bg-background-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-foreground-muted hover:bg-background-3 hover:text-foreground"
+            title="Click to mark as unsent so it can be added to chat again"
+          >
+            <CheckCircle2 className="size-2.5 text-green-500" />
+            <span>Sent</span>
+            <RotateCcw className="size-2.5" />
+          </button>
         ) : null}
         <span className="ml-auto flex items-center gap-2 text-foreground-passive">
           <RelativeTime value={comment.createdAt} compact ago />
@@ -117,10 +139,15 @@ export const PrCommentsList = observer(function PrCommentsList({ pr }: { pr: Pul
   const provisioned = useProvisionedTask();
   const prStore = provisioned.workspace.pr;
   const resource = prStore.getComments(pr);
+  const consumed = prStore.consumedCommentIds(pr.url);
   const isLoading = resource.data == null;
   const sorted = useMemo(
     () => [...(resource.data ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [resource.data]
+  );
+  const sentCount = useMemo(
+    () => sorted.filter((c) => consumed.has(c.id)).length,
+    [sorted, consumed]
   );
 
   if (isLoading) {
@@ -137,8 +164,29 @@ export const PrCommentsList = observer(function PrCommentsList({ pr }: { pr: Pul
 
   return (
     <div className="flex flex-col gap-3 py-3">
+      {sentCount > 0 ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background-1 px-3 py-1.5 text-xs text-foreground-muted">
+          <span>
+            {sentCount} of {sorted.length} marked as sent
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-2 text-xs"
+            onClick={() => prStore.resetConsumedComments(pr.url)}
+          >
+            <RotateCcw className="size-3" />
+            Mark all unsent
+          </Button>
+        </div>
+      ) : null}
       {sorted.map((c) => (
-        <CommentItem key={c.id} comment={c} />
+        <CommentItem
+          key={c.id}
+          comment={c}
+          isSent={consumed.has(c.id)}
+          onUnmark={() => prStore.unmarkCommentConsumed(pr.url, c.id)}
+        />
       ))}
     </div>
   );

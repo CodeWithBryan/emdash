@@ -29,7 +29,12 @@ export const ContextBar = observer(function ContextBar() {
   const prStore = provisioned.workspace.pr;
   const currentPr = prStore.currentPr;
   const prCommentsResource = currentPr ? prStore.getComments(currentPr) : null;
-  const prComments = useMemo(() => prCommentsResource?.data ?? [], [prCommentsResource?.data]);
+  const consumedSet = currentPr ? prStore.consumedCommentIds(currentPr.url) : null;
+  const prComments = useMemo(() => {
+    const all = prCommentsResource?.data ?? [];
+    if (!consumedSet || consumedSet.size === 0) return all;
+    return all.filter((c) => !consumedSet.has(c.id));
+  }, [prCommentsResource?.data, consumedSet]);
   const activeConversation = conversationTabs.activeTab;
   const activeSessionId = activeConversation?.session.sessionId;
   const canApplyContext = Boolean(activeSessionId);
@@ -128,7 +133,11 @@ export const ContextBar = observer(function ContextBar() {
             canApplyContext={canApplyContext}
             onApply={(selected: PullRequestComment[]) => {
               const action = buildPrCommentsContextAction(selected);
-              if (action) void applyContext(action);
+              if (!action) return;
+              const ids = selected.map((c) => c.id);
+              void applyContext(action).then(() => {
+                if (currentPr) prStore.markCommentsConsumed(currentPr.url, ids);
+              });
             }}
           />
         ) : null}
