@@ -1,6 +1,7 @@
-import { ArrowUp, FileSearch, MessagesSquare } from 'lucide-react';
+import { ArrowUp, FileSearch } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
+import type { PullRequestComment } from '@shared/pull-requests';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { getRegisteredTaskData } from '@renderer/features/tasks/stores/task-selectors';
 import { useProvisionedTask, useTaskViewContext } from '@renderer/features/tasks/task-view-context';
@@ -10,7 +11,12 @@ import { Button } from '@renderer/lib/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { ProviderLogo } from '../components/issue-selector/issue-selector';
 import { CommentsPopover } from './comments-popover';
-import { buildTaskContextActions, type ContextAction } from './context-actions';
+import {
+  buildPrCommentsContextAction,
+  buildTaskContextActions,
+  type ContextAction,
+} from './context-actions';
+import { PrCommentsPopover } from './pr-comments-popover';
 
 export const ContextBar = observer(function ContextBar() {
   const { projectId, taskId } = useTaskViewContext();
@@ -116,27 +122,15 @@ export const ContextBar = observer(function ContextBar() {
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {prCommentsAction ? (
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!canApplyContext}
-                onClick={() => void applyContext(prCommentsAction)}
-                className="h-7 max-w-full rounded-md bg-background-1 px-2 text-xs font-normal hover:bg-background-1/80"
-              >
-                <MessagesSquare className="size-3.5 shrink-0" />
-                <span className="max-w-72 truncate">{prCommentsAction.label}</span>
-                <ArrowUp className="size-3 shrink-0" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {canApplyContext
-                ? 'Add PR comments to the chat input'
-                : 'Create and select a conversation first'}
-            </TooltipContent>
-          </Tooltip>
+        {prComments.length > 0 ? (
+          <PrCommentsPopover
+            comments={prComments}
+            canApplyContext={canApplyContext}
+            onApply={(selected: PullRequestComment[]) => {
+              const action = buildPrCommentsContextAction(selected);
+              if (action) void applyContext(action);
+            }}
+          />
         ) : null}
         {draftCommentsAction ? (
           <CommentsPopover
