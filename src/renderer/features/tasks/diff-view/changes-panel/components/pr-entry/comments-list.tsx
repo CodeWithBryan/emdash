@@ -77,7 +77,7 @@ function CommentItem({ comment }: { comment: PullRequestComment }) {
             <button
               type="button"
               onClick={() => rpc.app.openExternal(comment.url!)}
-              className="rounded p-0.5 opacity-0 transition-opacity hover:bg-background-3 group-hover:opacity-100"
+              className="rounded p-0.5 opacity-0 transition-opacity hover:bg-background-3 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
               aria-label="Open on GitHub"
             >
               <ExternalLink className="size-3" />

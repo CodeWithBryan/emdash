@@ -92,9 +92,13 @@ export function buildDraftCommentsContextAction(args: {
   };
 }
 
+const MAX_PR_COMMENTS_FOR_CONTEXT = 200;
+const MAX_PR_COMMENT_BODY_CHARS = 500;
+
 function formatPrCommentForAgent(comment: PullRequestComment): string {
   const author = comment.author?.login ?? 'unknown';
-  const body = normalizeWhitespace(comment.body) || '(no body)';
+  const normalized = normalizeWhitespace(comment.body) || '(no body)';
+  const body = truncate(normalized, MAX_PR_COMMENT_BODY_CHARS);
   const headerParts: string[] = [author];
   if (comment.kind === 'review' && comment.reviewState) {
     headerParts.push(comment.reviewState.toLowerCase().replace('_', ' '));
@@ -110,12 +114,18 @@ export function buildPrCommentsContextAction(
   comments?: PullRequestComment[]
 ): ContextAction | null {
   if (!comments || comments.length === 0) return null;
-  const lines = comments.map(formatPrCommentForAgent);
-  const text = `PR comments:\n${lines.map((l) => `- ${l}`).join('\n')}`;
+  const total = comments.length;
+  const capped = comments.slice(0, MAX_PR_COMMENTS_FOR_CONTEXT);
+  const lines = capped.map(formatPrCommentForAgent);
+  const truncatedNote =
+    total > capped.length
+      ? `\n(${total - capped.length} additional comment${total - capped.length === 1 ? '' : 's'} omitted)`
+      : '';
+  const text = `PR comments:\n${lines.map((l) => `- ${l}`).join('\n')}${truncatedNote}`;
   return {
     id: 'pr-comments',
     kind: 'pr-comments',
-    label: `PR comments (${comments.length})`,
+    label: `PR comments (${total})`,
     text,
   };
 }

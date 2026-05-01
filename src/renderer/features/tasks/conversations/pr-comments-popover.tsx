@@ -1,6 +1,6 @@
 import { ArrowUp, CheckCircle2, MessageSquare, MessagesSquare, XCircle } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PullRequestComment } from '@shared/pull-requests';
 import { summarizeCommentBody } from '@renderer/features/tasks/diff-view/changes-panel/components/pr-entry/pr-comment-utils';
 import { Button } from '@renderer/lib/ui/button';
@@ -59,11 +59,33 @@ export const PrCommentsPopover = observer(function PrCommentsPopover({
   onApply,
 }: PrCommentsPopoverProps) {
   const [open, setOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(comments.map((c) => c.id))
+  );
+  const lastIdSetRef = useRef<string>(
+    comments
+      .map((c) => c.id)
+      .sort()
+      .join('|')
+  );
 
-  // Default to all selected; reset when comment set changes (added/removed).
+  // Preserve manual selections across polled refreshes. Only reset when the
+  // underlying comment ID set actually changes (added/removed comments).
   useEffect(() => {
-    setSelectedIds(new Set(comments.map((c) => c.id)));
+    const nextKey = comments
+      .map((c) => c.id)
+      .sort()
+      .join('|');
+    if (nextKey === lastIdSetRef.current) return;
+    lastIdSetRef.current = nextKey;
+    setSelectedIds((prev) => {
+      const validIds = new Set(comments.map((c) => c.id));
+      const newIds = comments.map((c) => c.id).filter((id) => !prev.has(id));
+      const next = new Set<string>();
+      for (const id of prev) if (validIds.has(id)) next.add(id);
+      for (const id of newIds) next.add(id); // newly arrived comments default to selected
+      return next;
+    });
   }, [comments]);
 
   const grouped = useMemo(() => {
@@ -111,22 +133,16 @@ export const PrCommentsPopover = observer(function PrCommentsPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger>
-          <PopoverTrigger className="relative self-center flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-background-1 px-2 text-xs font-normal text-foreground hover:bg-background-1/80">
-            <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
-            <span className="max-w-72 truncate">PR comments</span>
-            <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-background-3 px-1 text-[10px] font-semibold text-foreground-muted">
-              {count}
-            </span>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          {canApplyContext
-            ? `${count} PR comment${count === 1 ? '' : 's'}`
-            : 'Create and select a conversation first'}
-        </TooltipContent>
-      </Tooltip>
+      <PopoverTrigger
+        aria-label={`Show ${count} PR comment${count === 1 ? '' : 's'}`}
+        className="relative self-center flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-background-1 px-2 text-xs font-normal text-foreground hover:bg-background-1/80"
+      >
+        <MessagesSquare className="h-3.5 w-3.5 shrink-0" />
+        <span className="max-w-72 truncate">PR comments</span>
+        <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-background-3 px-1 text-[10px] font-semibold text-foreground-muted">
+          {count}
+        </span>
+      </PopoverTrigger>
 
       <PopoverContent align="start" className="w-[min(560px,92vw)] gap-0 p-0">
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3">

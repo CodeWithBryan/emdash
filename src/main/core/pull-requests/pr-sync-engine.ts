@@ -21,7 +21,9 @@ import { getOctokit } from '@main/core/github/services/octokit-provider';
 import {
   GET_PR_BY_NUMBER_QUERY,
   GET_PR_CHECK_RUNS_BY_URL_QUERY,
-  GET_PR_COMMENTS_QUERY,
+  GET_PR_ISSUE_COMMENTS_PAGE_QUERY,
+  GET_PR_REVIEW_THREADS_PAGE_QUERY,
+  GET_PR_REVIEWS_PAGE_QUERY,
   INCREMENTAL_SYNC_PRS_QUERY,
   SYNC_PRS_QUERY,
 } from '@main/core/github/services/pr-queries';
@@ -1104,6 +1106,7 @@ export class PrSyncEngine {
     const octokit = await this.getOctokit();
 
     type GqlAuthor = { login: string; avatarUrl: string; url?: string } | null;
+    type GqlPageInfo = { hasNextPage: boolean; endCursor: string | null };
     type GqlIssueComment = {
       id: string;
       url: string;
@@ -1125,30 +1128,55 @@ export class PrSyncEngine {
       path: string | null;
       line: number | null;
       originalLine: number | null;
-      comments: { nodes: GqlReviewThreadComment[] };
+      comments: { pageInfo: GqlPageInfo; nodes: GqlReviewThreadComment[] };
     };
 
-    const response = await withRetry(() =>
-      githubRateLimiter.acquire().then(() =>
-        octokit.graphql<{
+    const fetchAllPages = async <TNode>(
+      query: string,
+      pick: (data: {
+        repository: {
+          pullRequest: { [k: string]: { pageInfo: GqlPageInfo; nodes: TNode[] } } | null;
+        };
+      }) => { pageInfo: GqlPageInfo; nodes: TNode[] } | null
+    ): Promise<TNode[]> => {
+      const out: TNode[] = [];
+      let cursor: string | null = null;
+      // Hard cap to avoid runaway pagination on adversarial inputs.
+      for (let safety = 0; safety < 50; safety++) {
+        const response: {
           repository: {
-            pullRequest: {
-              comments: { nodes: GqlIssueComment[] };
-              reviews: { nodes: GqlReview[] };
-              reviewThreads: { nodes: GqlReviewThread[] };
-            } | null;
+            pullRequest: { [k: string]: { pageInfo: GqlPageInfo; nodes: TNode[] } } | null;
           };
-        }>(GET_PR_COMMENTS_QUERY, { owner, repo, number: prNumber })
-      )
-    );
+        } = await withRetry(() =>
+          githubRateLimiter
+            .acquire()
+            .then(() => octokit.graphql(query, { owner, repo, number: prNumber, cursor }))
+        );
+        const conn = pick(response);
+        if (!conn) return out;
+        out.push(...conn.nodes);
+        if (!conn.pageInfo.hasNextPage || !conn.pageInfo.endCursor) return out;
+        cursor = conn.pageInfo.endCursor;
+      }
+      return out;
+    };
 
-    const pr = response.repository.pullRequest;
-    if (!pr) return ok([]);
+    const [issueCommentNodes, reviewNodes, threadNodes] = await Promise.all([
+      fetchAllPages<GqlIssueComment>(GET_PR_ISSUE_COMMENTS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.comments : null
+      ),
+      fetchAllPages<GqlReview>(GET_PR_REVIEWS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.reviews : null
+      ),
+      fetchAllPages<GqlReviewThread>(GET_PR_REVIEW_THREADS_PAGE_QUERY, (d) =>
+        d.repository.pullRequest ? d.repository.pullRequest.reviewThreads : null
+      ),
+    ]);
 
     const mapAuthor = (a: GqlAuthor): PullRequestComment['author'] =>
       a ? { login: a.login, avatarUrl: a.avatarUrl ?? null, url: a.url ?? null } : null;
 
-    const issueComments: PullRequestComment[] = pr.comments.nodes.map((c) => ({
+    const issueComments: PullRequestComment[] = issueCommentNodes.map((c) => ({
       id: c.id,
       kind: 'issue',
       author: mapAuthor(c.author),
@@ -1158,7 +1186,7 @@ export class PrSyncEngine {
       updatedAt: c.updatedAt ?? null,
     }));
 
-    const reviews: PullRequestComment[] = pr.reviews.nodes
+    const reviews: PullRequestComment[] = reviewNodes
       .filter((r) => (r.body && r.body.trim().length > 0) || r.state !== 'COMMENTED')
       .map((r) => ({
         id: r.id,
@@ -1171,7 +1199,7 @@ export class PrSyncEngine {
         reviewState: r.state as PullRequestComment['reviewState'],
       }));
 
-    const threadComments: PullRequestComment[] = pr.reviewThreads.nodes.flatMap((t) =>
+    const threadComments: PullRequestComment[] = threadNodes.flatMap((t) =>
       t.comments.nodes.map((c) => ({
         id: c.id,
         kind: 'review-thread' as const,
