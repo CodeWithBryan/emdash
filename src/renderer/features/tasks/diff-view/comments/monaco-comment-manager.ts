@@ -8,8 +8,15 @@ import { CommentWidget } from './comment-widget';
 const GUTTER_GLYPH_MARGIN = 2;
 const COMMENT_ZONE_HEIGHT_PX = 140 + 24;
 
+type LineRange = { start: number; end: number };
+
 interface MonacoCommentManagerOptions {
-  onAddComment: (lineNumber: number, content: string, lineContent?: string) => void | Promise<void>;
+  onAddComment: (
+    startLineNumber: number,
+    endLineNumber: number,
+    content: string,
+    lineContent?: string
+  ) => void | Promise<void>;
   onEditComment: (id: string, content: string) => void | Promise<void>;
   onDeleteComment: (id: string) => void | Promise<void>;
 }
@@ -20,7 +27,7 @@ export class MonacoCommentManager {
 
   private viewZoneRoots: Map<
     string,
-    { zoneId: string; root: Root; domNode: HTMLElement; lineNumber: number }
+    { zoneId: string; root: Root; domNode: HTMLElement; endLineNumber: number }
   > = new Map();
 
   private decorationIds: string[] = [];
@@ -31,24 +38,28 @@ export class MonacoCommentManager {
   private inputZoneId: string | null = null;
   private inputRoot: Root | null = null;
   private inputDomNode: HTMLElement | null = null;
-  private activeInputLine: number | null = null;
+  private activeInputRange: LineRange | null = null;
+
+  private dragAnchorLine: number | null = null;
+  private dragCurrentLine: number | null = null;
+  private documentMouseUpHandler: ((e: MouseEvent) => void) | null = null;
 
   private disposed = false;
-  private gutterClickDisposable: monaco.IDisposable | null = null;
+  private gutterMouseDownDisposable: monaco.IDisposable | null = null;
   private hoverMoveDisposable: monaco.IDisposable | null = null;
   private hoverLeaveDisposable: monaco.IDisposable | null = null;
 
   constructor(editor: monaco.editor.IStandaloneDiffEditor, options: MonacoCommentManagerOptions) {
     this.editor = editor;
     this.options = options;
-    this.setupGutterClickHandler();
+    this.setupGutterMouseDownHandler();
     this.setupHoverHandler();
   }
 
-  private setupGutterClickHandler() {
+  private setupGutterMouseDownHandler() {
     const modifiedEditor = this.editor.getModifiedEditor();
 
-    this.gutterClickDisposable = modifiedEditor.onMouseDown((e) => {
+    this.gutterMouseDownDisposable = modifiedEditor.onMouseDown((e) => {
       if (e.target.type !== GUTTER_GLYPH_MARGIN) return;
       const targetElement = e.target.element;
       if (!targetElement?.classList.contains('comment-hover-icon')) return;
@@ -59,10 +70,45 @@ export class MonacoCommentManager {
       e.event?.preventDefault();
       e.event?.stopPropagation();
 
-      const model = modifiedEditor.getModel();
-      const lineContent = model?.getLineContent(lineNumber) ?? '';
-      this.showInputAt(lineNumber, lineContent);
+      this.startDrag(lineNumber);
     });
+  }
+
+  private startDrag(lineNumber: number) {
+    this.dragAnchorLine = lineNumber;
+    this.dragCurrentLine = lineNumber;
+    this.setHoverDecorationsForRange(lineNumber, lineNumber);
+
+    const handleUp = () => {
+      document.removeEventListener('mouseup', handleUp, true);
+      this.documentMouseUpHandler = null;
+      this.commitDrag();
+    };
+    this.documentMouseUpHandler = handleUp;
+    document.addEventListener('mouseup', handleUp, true);
+  }
+
+  private commitDrag() {
+    if (this.dragAnchorLine === null || this.dragCurrentLine === null) {
+      this.dragAnchorLine = null;
+      this.dragCurrentLine = null;
+      return;
+    }
+
+    const start = Math.min(this.dragAnchorLine, this.dragCurrentLine);
+    const end = Math.max(this.dragAnchorLine, this.dragCurrentLine);
+    this.dragAnchorLine = null;
+    this.dragCurrentLine = null;
+
+    const modifiedEditor = this.editor.getModifiedEditor();
+    const model = modifiedEditor.getModel();
+    const lineContent = model
+      ? Array.from({ length: end - start + 1 }, (_, i) => model.getLineContent(start + i)).join(
+          '\n'
+        )
+      : '';
+
+    this.showInputAt(start, end, lineContent);
   }
 
   private setupHoverHandler() {
@@ -70,6 +116,19 @@ export class MonacoCommentManager {
 
     this.hoverMoveDisposable = modifiedEditor.onMouseMove((e) => {
       if (this.disposed) return;
+
+      const lineNumber = e.target.position?.lineNumber ?? null;
+
+      if (this.dragAnchorLine !== null) {
+        if (lineNumber && lineNumber !== this.dragCurrentLine) {
+          this.dragCurrentLine = lineNumber;
+          const start = Math.min(this.dragAnchorLine, lineNumber);
+          const end = Math.max(this.dragAnchorLine, lineNumber);
+          this.setHoverDecorationsForRange(start, end);
+        }
+        return;
+      }
+
       const targetElement = e.target.element as HTMLElement | null;
       if (targetElement?.closest?.('.comment-view-zone')) {
         this.clearHoverDecoration();
@@ -77,15 +136,13 @@ export class MonacoCommentManager {
         return;
       }
 
-      const lineNumber = e.target.position?.lineNumber;
-
       if (lineNumber && lineNumber !== this.hoveredLine) {
-        if (lineNumber === this.activeInputLine) {
+        if (this.activeInputRange && this.isLineInRange(lineNumber, this.activeInputRange)) {
           this.clearHoverDecoration();
           this.hoveredLine = lineNumber;
           return;
         }
-        this.setHoverDecoration(lineNumber);
+        this.setHoverDecorationsForRange(lineNumber, lineNumber);
         this.hoveredLine = lineNumber;
       } else if (!lineNumber && this.hoveredLine !== null) {
         this.clearHoverDecoration();
@@ -95,49 +152,55 @@ export class MonacoCommentManager {
 
     this.hoverLeaveDisposable = modifiedEditor.onMouseLeave(() => {
       if (this.disposed) return;
+      if (this.dragAnchorLine !== null) return;
       this.clearHoverDecoration();
       this.hoveredLine = null;
     });
   }
 
-  private setHoverDecoration(lineNumber: number) {
-    const modifiedEditor = this.editor.getModifiedEditor();
-
-    const decoration: monaco.editor.IModelDeltaDecoration = {
-      range: {
-        startLineNumber: lineNumber,
-        startColumn: 1,
-        endLineNumber: lineNumber,
-        endColumn: 1,
-      },
-      options: {
-        glyphMarginClassName: 'comment-hover-icon',
-      },
-    };
-
-    this.hoverDecorationIds = modifiedEditor.deltaDecorations(this.hoverDecorationIds, [
-      decoration,
-    ]);
+  private isLineInRange(line: number, range: LineRange): boolean {
+    return line >= range.start && line <= range.end;
   }
 
-  private setPinnedDecoration(lineNumber: number) {
+  private buildLineDecorations(
+    start: number,
+    end: number,
+    className: string
+  ): monaco.editor.IModelDeltaDecoration[] {
+    const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+    for (let line = start; line <= end; line++) {
+      decorations.push({
+        range: {
+          startLineNumber: line,
+          startColumn: 1,
+          endLineNumber: line,
+          endColumn: 1,
+        },
+        options: {
+          glyphMarginClassName: className,
+        },
+      });
+    }
+    return decorations;
+  }
+
+  private setHoverDecorationsForRange(start: number, end: number) {
     const modifiedEditor = this.editor.getModifiedEditor();
+    const decorations = this.buildLineDecorations(start, end, 'comment-hover-icon');
+    this.hoverDecorationIds = modifiedEditor.deltaDecorations(this.hoverDecorationIds, decorations);
+  }
 
-    const decoration: monaco.editor.IModelDeltaDecoration = {
-      range: {
-        startLineNumber: lineNumber,
-        startColumn: 1,
-        endLineNumber: lineNumber,
-        endColumn: 1,
-      },
-      options: {
-        glyphMarginClassName: 'comment-hover-icon comment-hover-icon-pinned',
-      },
-    };
-
-    this.pinnedDecorationIds = modifiedEditor.deltaDecorations(this.pinnedDecorationIds, [
-      decoration,
-    ]);
+  private setPinnedDecorationsForRange(start: number, end: number) {
+    const modifiedEditor = this.editor.getModifiedEditor();
+    const decorations = this.buildLineDecorations(
+      start,
+      end,
+      'comment-hover-icon comment-hover-icon-pinned'
+    );
+    this.pinnedDecorationIds = modifiedEditor.deltaDecorations(
+      this.pinnedDecorationIds,
+      decorations
+    );
   }
 
   private clearHoverDecoration() {
@@ -172,7 +235,7 @@ export class MonacoCommentManager {
       for (const comment of comments) {
         const existing = this.viewZoneRoots.get(comment.id);
         if (existing) {
-          existing.domNode.dataset.lineNumber = String(comment.lineNumber);
+          existing.domNode.dataset.lineNumber = String(comment.endLineNumber);
           existing.domNode.style.padding = '12px';
           existing.domNode.style.boxSizing = 'border-box';
           existing.domNode.className = 'comment-view-zone bg-muted/40 border border-border';
@@ -185,10 +248,10 @@ export class MonacoCommentManager {
             })
           );
 
-          if (existing.lineNumber !== comment.lineNumber) {
+          if (existing.endLineNumber !== comment.endLineNumber) {
             accessor.removeZone(existing.zoneId);
             const zoneId = accessor.addZone({
-              afterLineNumber: comment.lineNumber,
+              afterLineNumber: comment.endLineNumber,
               heightInPx: COMMENT_ZONE_HEIGHT_PX,
               domNode: existing.domNode,
               suppressMouseDown: false,
@@ -197,7 +260,7 @@ export class MonacoCommentManager {
             this.viewZoneRoots.set(comment.id, {
               ...existing,
               zoneId,
-              lineNumber: comment.lineNumber,
+              endLineNumber: comment.endLineNumber,
             });
           }
           continue;
@@ -211,7 +274,7 @@ export class MonacoCommentManager {
         domNode.style.position = 'relative';
         domNode.style.zIndex = '10';
         domNode.style.width = '100%';
-        domNode.dataset.lineNumber = String(comment.lineNumber);
+        domNode.dataset.lineNumber = String(comment.endLineNumber);
 
         const root = createRoot(domNode);
         root.render(
@@ -223,7 +286,7 @@ export class MonacoCommentManager {
         );
 
         const zoneId = accessor.addZone({
-          afterLineNumber: comment.lineNumber,
+          afterLineNumber: comment.endLineNumber,
           heightInPx: COMMENT_ZONE_HEIGHT_PX,
           domNode,
           suppressMouseDown: false,
@@ -234,14 +297,19 @@ export class MonacoCommentManager {
           zoneId,
           root,
           domNode,
-          lineNumber: comment.lineNumber,
+          endLineNumber: comment.endLineNumber,
         });
       }
     });
   }
 
-  showInputAt(lineNumber: number, lineContent: string) {
-    if (this.activeInputLine === lineNumber && this.inputDomNode) {
+  showInputAt(startLineNumber: number, endLineNumber: number, lineContent: string) {
+    if (
+      this.activeInputRange &&
+      this.activeInputRange.start === startLineNumber &&
+      this.activeInputRange.end === endLineNumber &&
+      this.inputDomNode
+    ) {
       const textarea = this.inputDomNode.querySelector('textarea');
       if (textarea instanceof HTMLTextAreaElement) textarea.focus();
       return;
@@ -250,17 +318,18 @@ export class MonacoCommentManager {
     this.hideInput();
 
     const modifiedEditor = this.editor.getModifiedEditor();
-    this.activeInputLine = lineNumber;
-    this.setPinnedDecoration(lineNumber);
+    this.activeInputRange = { start: startLineNumber, end: endLineNumber };
+    this.setPinnedDecorationsForRange(startLineNumber, endLineNumber);
 
     this.inputDomNode = document.createElement('div');
     this.inputRoot = createRoot(this.inputDomNode);
 
     this.inputRoot.render(
       React.createElement(CommentInput, {
-        lineNumber,
+        startLineNumber,
+        endLineNumber,
         onSubmit: async (content) => {
-          await this.options.onAddComment(lineNumber, content, lineContent);
+          await this.options.onAddComment(startLineNumber, endLineNumber, content, lineContent);
           this.hideInput();
         },
         onCancel: () => this.hideInput(),
@@ -274,11 +343,11 @@ export class MonacoCommentManager {
     this.inputDomNode.style.position = 'relative';
     this.inputDomNode.style.zIndex = '10';
     this.inputDomNode.style.width = '100%';
-    this.inputDomNode.dataset.lineNumber = String(lineNumber);
+    this.inputDomNode.dataset.lineNumber = String(endLineNumber);
 
     modifiedEditor.changeViewZones((accessor) => {
       this.inputZoneId = accessor.addZone({
-        afterLineNumber: lineNumber,
+        afterLineNumber: endLineNumber,
         heightInPx: COMMENT_ZONE_HEIGHT_PX,
         domNode: this.inputDomNode!,
         suppressMouseDown: false,
@@ -316,14 +385,21 @@ export class MonacoCommentManager {
     this.inputRoot?.unmount();
     this.inputRoot = null;
     this.inputDomNode = null;
-    this.activeInputLine = null;
+    this.activeInputRange = null;
     this.clearPinnedDecoration();
   }
 
   dispose() {
     this.disposed = true;
 
-    this.gutterClickDisposable?.dispose();
+    if (this.documentMouseUpHandler) {
+      document.removeEventListener('mouseup', this.documentMouseUpHandler, true);
+      this.documentMouseUpHandler = null;
+    }
+    this.dragAnchorLine = null;
+    this.dragCurrentLine = null;
+
+    this.gutterMouseDownDisposable?.dispose();
     this.hoverMoveDisposable?.dispose();
     this.hoverLeaveDisposable?.dispose();
 

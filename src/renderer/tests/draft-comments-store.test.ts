@@ -14,7 +14,8 @@ describe('DraftCommentsStore', () => {
 
     store.addComment({
       filePath: 'src/example.ts',
-      lineNumber: 12,
+      startLineNumber: 12,
+      endLineNumber: 12,
       lineContent: 'const value = 1;',
       content: 'Rename this to be clearer.',
     });
@@ -28,5 +29,35 @@ describe('DraftCommentsStore', () => {
     expect(store.count).toBe(0);
     expect(store.comments).toEqual([]);
     expect(store.formattedForAgent).toBe('');
+  });
+
+  it('formats multi-line ranges with lines="start-end"', () => {
+    const store = new DraftCommentsStore('task-1');
+
+    store.addComment({
+      filePath: 'src/example.ts',
+      startLineNumber: 42,
+      endLineNumber: 45,
+      lineContent: 'a\nb\nc\nd',
+      content: 'Refactor this block.',
+    });
+
+    expect(store.formattedForAgent).toContain('lines="42-45"');
+    expect(store.formattedForAgent).toContain('Refactor this block.');
+  });
+
+  it('normalizes reversed start/end inputs', () => {
+    const store = new DraftCommentsStore('task-1');
+
+    store.addComment({
+      filePath: 'src/example.ts',
+      startLineNumber: 50,
+      endLineNumber: 47,
+      content: 'oops',
+    });
+
+    const [comment] = store.comments;
+    expect(comment.startLineNumber).toBe(47);
+    expect(comment.endLineNumber).toBe(50);
   });
 });

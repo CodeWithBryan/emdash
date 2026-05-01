@@ -27,11 +27,12 @@ export const FileDiffView = observer(function FileDiffView() {
   const comments = activeFilePath ? draftComments.getCommentsForFile(activeFilePath) : [];
 
   const handleAddComment = useCallback(
-    (lineNumber: number, content: string, lineContent?: string) => {
+    (startLineNumber: number, endLineNumber: number, content: string, lineContent?: string) => {
       if (!activeFilePath) return;
       draftComments.addComment({
         filePath: activeFilePath,
-        lineNumber,
+        startLineNumber,
+        endLineNumber,
         lineContent: lineContent ?? null,
         content,
       });

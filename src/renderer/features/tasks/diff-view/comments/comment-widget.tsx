@@ -55,7 +55,13 @@ export const CommentWidget: React.FC<CommentWidgetProps> = ({ comment, onEdit, o
       <Comment.Header>
         <Comment.Title>
           {isEditing ? 'Edit comment' : 'Comment'}
-          <Comment.Meta className="ml-2">(Line {comment.lineNumber})</Comment.Meta>
+          <Comment.Meta className="ml-2">
+            (
+            {comment.startLineNumber === comment.endLineNumber
+              ? `Line ${comment.startLineNumber}`
+              : `Lines ${comment.startLineNumber}–${comment.endLineNumber}`}
+            )
+          </Comment.Meta>
         </Comment.Title>
         <Comment.Actions>
           {isEditing ? (
