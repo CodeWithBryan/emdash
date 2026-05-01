@@ -156,6 +156,59 @@ export const GET_PR_BY_NUMBER_QUERY = `
   ${PR_SUMMARY_FRAGMENT}
 `;
 
+export const GET_PR_COMMENTS_QUERY = `
+  query getPrComments($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        comments(first: 100) {
+          nodes {
+            id
+            url
+            body
+            createdAt
+            updatedAt
+            author { login avatarUrl url }
+          }
+        }
+        reviews(first: 100) {
+          nodes {
+            id
+            url
+            body
+            state
+            createdAt
+            updatedAt
+            author { login avatarUrl url }
+          }
+        }
+        reviewThreads(first: 100) {
+          nodes {
+            id
+            isOutdated
+            isResolved
+            path
+            line
+            originalLine
+            comments(first: 50) {
+              nodes {
+                id
+                url
+                body
+                createdAt
+                updatedAt
+                path
+                line
+                originalLine
+                author { login avatarUrl url }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const GET_PR_CHECK_RUNS_BY_URL_QUERY = `
   query getPrCheckRunsByUrl($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
     repository(owner: $owner, name: $repo) {

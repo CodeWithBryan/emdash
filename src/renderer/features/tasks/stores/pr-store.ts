@@ -7,6 +7,7 @@ import {
   pullRequestErrorMessage,
   selectCurrentPr,
   type PullRequest,
+  type PullRequestComment,
 } from '@shared/pull-requests';
 import type { Task } from '@shared/tasks';
 import type { RepositoryStore } from '@renderer/features/projects/stores/repository-store';
@@ -29,6 +30,10 @@ export class PrStore {
   private readonly _prFiles = new Map<
     string,
     { resource: Resource<GitChange[]>; headRefOid: string }
+  >();
+  private readonly _prComments = new Map<
+    string,
+    { resource: Resource<PullRequestComment[]>; updatedAt: string }
   >();
 
   constructor(
@@ -108,6 +113,32 @@ export class PrStore {
     return this._prFiles.get(key)!.resource;
   }
 
+  getComments(pr: PullRequest): Resource<PullRequestComment[]> {
+    const key = pr.url;
+    const existing = this._prComments.get(key);
+    if (existing && existing.updatedAt !== pr.updatedAt) {
+      existing.resource.dispose();
+      this._prComments.delete(key);
+    }
+    if (!this._prComments.has(key)) {
+      const resource = new Resource<PullRequestComment[]>(
+        () => this._fetchPrComments(pr),
+        [{ kind: 'poll', intervalMs: 60_000, pauseWhenHidden: true, demandGated: true }]
+      );
+      resource.start();
+      this._prComments.set(key, { resource, updatedAt: pr.updatedAt });
+    }
+    return this._prComments.get(key)!.resource;
+  }
+
+  private async _fetchPrComments(pr: PullRequest): Promise<PullRequestComment[]> {
+    const prNumber = prNumberFromIdentifier(pr.identifier);
+    if (!prNumber) return [];
+    const result = await rpc.pullRequests.getPullRequestComments(pr.repositoryUrl, prNumber);
+    if (!result.success) return [];
+    return result.data.comments;
+  }
+
   async mergePr(
     id: string,
     options: { strategy: MergeMode; commitHeadOid?: string }
@@ -176,6 +207,7 @@ export class PrStore {
 
   dispose(): void {
     for (const entry of this._prFiles.values()) entry.resource.dispose();
+    for (const entry of this._prComments.values()) entry.resource.dispose();
   }
 
   private async _fetchPrFiles(pr: PullRequest): Promise<GitChange[]> {

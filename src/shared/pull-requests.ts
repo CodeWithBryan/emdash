@@ -26,6 +26,30 @@ export type Label = {
   color: string | null;
 };
 
+export type PullRequestCommentKind = 'issue' | 'review' | 'review-thread';
+
+export type PullRequestComment = {
+  id: string;
+  kind: PullRequestCommentKind;
+  author: {
+    login: string;
+    avatarUrl: string | null;
+    url: string | null;
+  } | null;
+  body: string;
+  url: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  /** Review-only metadata. */
+  reviewState?: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING' | null;
+  /** File path for inline review-thread comments. */
+  path?: string | null;
+  /** Diff line for inline review-thread comments. */
+  line?: number | null;
+  /** Outdated thread (target line no longer exists). */
+  outdated?: boolean;
+};
+
 export type PullRequestCheck = {
   id: string;
   pullRequestUrl: string;
@@ -122,7 +146,8 @@ export type PullRequestError =
   | { type: 'create_failed'; message: string }
   | { type: 'merge_failed'; message: string }
   | { type: 'mark_ready_failed'; message: string }
-  | { type: 'files_failed'; message: string };
+  | { type: 'files_failed'; message: string }
+  | { type: 'comments_failed'; message: string };
 
 // ── Pass-through types ────────────────────────────────────────────────────────
 

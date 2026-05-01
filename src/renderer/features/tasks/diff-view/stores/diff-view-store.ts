@@ -23,7 +23,7 @@ export class DiffViewStore implements Snapshottable<DiffViewSnapshot> {
   diffStyle: 'unified' | 'split' = 'unified';
   readonly viewMode = 'file' as const;
   commitAction: 'commit' | 'commit-push' | null = null;
-  prTab: 'files' | 'commits' | 'checks' = 'files';
+  prTab: 'files' | 'commits' | 'checks' | 'comments' = 'files';
 
   readonly changesView: ChangesViewStore;
 
@@ -126,7 +126,7 @@ export class DiffViewStore implements Snapshottable<DiffViewSnapshot> {
     return null;
   }
 
-  get effectivePrTab(): 'files' | 'commits' | 'checks' {
+  get effectivePrTab(): 'files' | 'commits' | 'checks' | 'comments' {
     if (this.pr.currentPr?.status !== 'open' && this.prTab === 'files') {
       return 'commits';
     }
@@ -182,7 +182,7 @@ export class DiffViewStore implements Snapshottable<DiffViewSnapshot> {
     this.diffStyle = style;
   }
 
-  setPrTab(tab: 'files' | 'commits' | 'checks'): void {
+  setPrTab(tab: 'files' | 'commits' | 'checks' | 'comments'): void {
     this.prTab = tab;
   }
 

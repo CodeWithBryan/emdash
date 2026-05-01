@@ -16,7 +16,7 @@ export type DiffViewSnapshot = {
   viewMode: 'file';
   activeFile?: ActiveFile;
   commitAction: 'commit' | 'commit-push' | null;
-  prTab?: 'files' | 'commits' | 'checks';
+  prTab?: 'files' | 'commits' | 'checks' | 'comments';
 };
 
 export interface ActiveFile {

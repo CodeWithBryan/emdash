@@ -12,6 +12,7 @@ import { type SplitButtonAction } from '@renderer/lib/ui/split-button';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { cn } from '@renderer/utils/utils';
 import { PrChecksList } from './checks-list';
+import { PrCommentsList } from './comments-list';
 import { PrCommitsList } from './commits-list';
 import { PrFilesList } from './files-list';
 import { MergeFooter } from './merge-footer';
@@ -188,7 +189,7 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
           className="w-full"
           onValueChange={([value]) => {
             if (value) {
-              diffView.setPrTab(value as 'files' | 'commits' | 'checks');
+              diffView.setPrTab(value as 'files' | 'commits' | 'checks' | 'comments');
             }
           }}
         >
@@ -201,11 +202,15 @@ export const PullRequestEntry = observer(function PullRequestEntry({ pr }: { pr:
           <ToggleGroupItem className="flex-1" value="checks">
             Checks
           </ToggleGroupItem>
+          <ToggleGroupItem className="flex-1" value="comments">
+            Comments
+          </ToggleGroupItem>
         </ToggleGroup>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === 'files' && <PrFilesList pr={pr} />}
           {tab === 'commits' && <PrCommitsList />}
           {tab === 'checks' && <PrChecksList pr={pr} />}
+          {tab === 'comments' && <PrCommentsList pr={pr} />}
         </div>
       </div>
       {pr.status === 'open' && (
