@@ -24,7 +24,12 @@ describe('DraftCommentsStore reactivity', () => {
       seen.push(store.count);
     });
 
-    store.addComment({ filePath: 'a.ts', lineNumber: 1, content: 'note' });
+    store.addComment({
+      filePath: 'a.ts',
+      startLineNumber: 1,
+      endLineNumber: 1,
+      content: 'note',
+    });
     store.deleteComment('11111111-1111-1111-1111-111111111111');
     dispose();
 

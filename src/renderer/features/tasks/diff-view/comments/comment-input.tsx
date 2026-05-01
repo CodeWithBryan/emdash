@@ -4,18 +4,24 @@ import { Button } from '@renderer/lib/ui/button';
 import { Comment, useTextareaAutoFocus } from './comment-card';
 
 interface CommentInputProps {
-  lineNumber: number;
+  startLineNumber: number;
+  endLineNumber: number;
   existingContent?: string;
   onSubmit: (content: string) => void | Promise<void>;
   onCancel: () => void;
 }
 
 export const CommentInput: React.FC<CommentInputProps> = ({
-  lineNumber,
+  startLineNumber,
+  endLineNumber,
   existingContent,
   onSubmit,
   onCancel,
 }) => {
+  const lineLabel =
+    startLineNumber === endLineNumber
+      ? `Line ${startLineNumber}`
+      : `Lines ${startLineNumber}–${endLineNumber}`;
   const [content, setContent] = useState(existingContent || '');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -42,7 +48,7 @@ export const CommentInput: React.FC<CommentInputProps> = ({
       <Comment.Header>
         <Comment.Title>
           {existingContent ? 'Edit comment' : 'Add comment'}
-          <Comment.Meta className="ml-2">(Line {lineNumber})</Comment.Meta>
+          <Comment.Meta className="ml-2">({lineLabel})</Comment.Meta>
         </Comment.Title>
         <Comment.Actions>
           <Button
@@ -75,7 +81,11 @@ export const CommentInput: React.FC<CommentInputProps> = ({
           value={content}
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Add a note about this line..."
+          placeholder={
+            startLineNumber === endLineNumber
+              ? 'Add a note about this line...'
+              : 'Add a note about these lines...'
+          }
           autoFocus
         />
       </Comment.Body>

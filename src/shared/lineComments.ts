@@ -1,6 +1,7 @@
 export type LineCommentLike = {
   filePath: string;
-  lineNumber: number;
+  startLineNumber: number;
+  endLineNumber: number;
   content: string;
 };
 
@@ -10,12 +11,16 @@ type FormatOptions = {
 };
 
 const COMMENT_LINE = (c: LineCommentLike) => {
-  return `    <comment line="${c.lineNumber}">${c.content}</comment>`;
+  const attr =
+    c.startLineNumber === c.endLineNumber
+      ? `line="${c.startLineNumber}"`
+      : `lines="${c.startLineNumber}-${c.endLineNumber}"`;
+  return `    <comment ${attr}>${c.content}</comment>`;
 };
 
 const FILE_BLOCK = (filePath: string, comments: LineCommentLike[]) => `  <file path="${filePath}">
 ${comments
-  .sort((a, b) => a.lineNumber - b.lineNumber)
+  .sort((a, b) => a.startLineNumber - b.startLineNumber || a.endLineNumber - b.endLineNumber)
   .map(COMMENT_LINE)
   .join('\n')}
   </file>`;

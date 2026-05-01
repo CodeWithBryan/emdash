@@ -7,7 +7,8 @@ export type DraftComment = {
   id: string;
   taskId: string;
   filePath: string;
-  lineNumber: number;
+  startLineNumber: number;
+  endLineNumber: number;
   lineContent?: string | null;
   content: string;
   createdAt: string;
@@ -16,7 +17,8 @@ export type DraftComment = {
 
 type CreateDraftCommentInput = {
   filePath: string;
-  lineNumber: number;
+  startLineNumber: number;
+  endLineNumber: number;
   lineContent?: string | null;
   content: string;
 };
@@ -24,7 +26,7 @@ type CreateDraftCommentInput = {
 function byCreatedAtThenLine(a: DraftComment, b: DraftComment): number {
   const byCreatedAt = a.createdAt.localeCompare(b.createdAt);
   if (byCreatedAt !== 0) return byCreatedAt;
-  return a.lineNumber - b.lineNumber;
+  return a.startLineNumber - b.startLineNumber;
 }
 
 export class DraftCommentsStore {
@@ -49,7 +51,9 @@ export class DraftCommentsStore {
   getCommentsForFile(filePath: string): DraftComment[] {
     return this.comments
       .filter((comment) => comment.filePath === filePath)
-      .sort((a, b) => a.lineNumber - b.lineNumber || a.createdAt.localeCompare(b.createdAt));
+      .sort(
+        (a, b) => a.startLineNumber - b.startLineNumber || a.createdAt.localeCompare(b.createdAt)
+      );
   }
 
   addComment(input: CreateDraftCommentInput): string {
@@ -62,12 +66,15 @@ export class DraftCommentsStore {
 
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
+    const start = Math.min(input.startLineNumber, input.endLineNumber);
+    const end = Math.max(input.startLineNumber, input.endLineNumber);
 
     this.commentsById.set(id, {
       id,
       taskId: this.taskId,
       filePath: input.filePath,
-      lineNumber: input.lineNumber,
+      startLineNumber: start,
+      endLineNumber: end,
       lineContent: input.lineContent ?? null,
       content: input.content,
       createdAt: now,

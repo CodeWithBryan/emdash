@@ -106,7 +106,9 @@ export const CommentsPopover = observer(function CommentsPopover({
                     >
                       <div className="min-w-0 flex-1">
                         <div className="text-xs text-muted-foreground">
-                          Line {comment.lineNumber}
+                          {comment.startLineNumber === comment.endLineNumber
+                            ? `Line ${comment.startLineNumber}`
+                            : `Lines ${comment.startLineNumber}–${comment.endLineNumber}`}
                         </div>
                         <div className="line-clamp-2 break-words text-sm leading-snug">
                           {comment.content}

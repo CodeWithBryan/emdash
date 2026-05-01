@@ -6,7 +6,12 @@ import { MonacoCommentManager } from './monaco-comment-manager';
 interface UseDiffEditorCommentsOptions {
   editor: monaco.editor.IStandaloneDiffEditor | null;
   comments: DraftComment[];
-  onAddComment: (lineNumber: number, content: string, lineContent?: string) => void | Promise<void>;
+  onAddComment: (
+    startLineNumber: number,
+    endLineNumber: number,
+    content: string,
+    lineContent?: string
+  ) => void | Promise<void>;
   onEditComment: (id: string, content: string) => void | Promise<void>;
   onDeleteComment: (id: string) => void | Promise<void>;
 }
